@@ -36,6 +36,7 @@ npm run preview
 - Draw rectangles and polygons on the floor plan.
 - Select, multi-select (Shift-click), move, and resize shapes.
 - Drag polygon vertices; add polygon points with Alt-click.
+- Hold Shift while drawing a polygon to constrain the next segment to horizontal or vertical.
 - Snap-to-grid for alignment (toggle in toolbar).
 - Pan/zoom with mouse wheel; space+drag or Pan tool.
 - Rename, recolor, duplicate, delete areas.
@@ -44,6 +45,7 @@ npm run preview
 - Convert selection to polygon.
 - Group selection into named groups.
 - Keyboard controls: Delete to remove, arrow keys to nudge (Shift+arrow = 10px).
+- Copy/paste areas with Cmd/Ctrl+C and Cmd/Ctrl+V.
 - Context menu (right-click/long-press) for quick actions: rename, divide, duplicate, merge, group, convert.
 - Undo/redo (Ctrl/Cmd+Z, Shift+Ctrl/Cmd+Z) and toolbar buttons.
 - Export/import plan JSON.

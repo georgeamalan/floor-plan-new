@@ -102,6 +102,9 @@ export default function AppShell() {
       } else if (isRedo) {
         e.preventDefault();
         redo();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        setTool('select');
       } else if ((e.metaKey || e.ctrlKey) && key === 'c') {
         const ids = selectionRef.current.areaIds;
         if (!ids.length) return;

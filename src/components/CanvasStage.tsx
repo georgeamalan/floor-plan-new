@@ -150,6 +150,15 @@ export default function CanvasStage() {
     return { x: a.x + ab.x * t, y: a.y + ab.y * t };
   };
 
+  const constrainOrthogonal = (point: { x: number; y: number }, anchor: { x: number; y: number }) => {
+    const dx = point.x - anchor.x;
+    const dy = point.y - anchor.y;
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      return { x: point.x, y: anchor.y };
+    }
+    return { x: anchor.x, y: point.y };
+  };
+
   // Track container size for scaling
   useEffect(() => {
     if (!containerRef.current) return;
@@ -415,7 +424,9 @@ export default function CanvasStage() {
   const addPolygonPoint = (evt: React.PointerEvent) => {
     const world = toWorld(evt);
     if (interaction?.kind === 'drawing-polygon') {
-      setInteraction({ kind: 'drawing-polygon', points: [...interaction.points, world] });
+      const last = interaction.points[interaction.points.length - 1];
+      const point = evt.shiftKey && last ? constrainOrthogonal(world, last) : world;
+      setInteraction({ kind: 'drawing-polygon', points: [...interaction.points, point] });
     } else {
       setInteraction({ kind: 'drawing-polygon', points: [world] });
     }
@@ -611,7 +622,9 @@ export default function CanvasStage() {
       setDraftBoundary({ width, height });
     }
     if (interaction.kind === 'drawing-polygon') {
-      setInteraction({ ...interaction, hover: world });
+      const last = interaction.points[interaction.points.length - 1];
+      const hover = evt.shiftKey && last ? constrainOrthogonal(world, last) : world;
+      setInteraction({ ...interaction, hover });
       return;
     }
   };
