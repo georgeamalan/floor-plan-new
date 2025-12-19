@@ -165,6 +165,47 @@ function createPolygon(plan: Plan, payload: CommandPayloads['area/create-polygon
   return { plan: next, selection: { areaIds: [id] }, description: 'Create polygon' };
 }
 
+function pasteAreas(plan: Plan, payload: CommandPayloads['area/paste']): CommandResult {
+  const next = clonePlan(plan);
+  const createdIds: string[] = [];
+
+  payload.areas.forEach((area) => {
+    let shape = area.shape;
+
+    if (shape.type === 'rect') {
+      const rect = constrainRectToBounds(
+        { ...shape, x: shape.x + payload.dx, y: shape.y + payload.dy },
+        next.canvas,
+      );
+      shape = rect;
+    } else if (shape.type === 'polygon') {
+      const points = shape.points.map((p) => ({ x: p.x + payload.dx, y: p.y + payload.dy }));
+      if (points.length < 3) return;
+      shape = { type: 'polygon', points };
+    } else {
+      const polygons = shape.polygons.map((poly) => poly.map((p) => ({ x: p.x + payload.dx, y: p.y + payload.dy })));
+      if (!polygons.length || polygons.some((poly) => poly.length < 3)) return;
+      shape = { type: 'multipolygon', polygons };
+    }
+
+    const id = crypto.randomUUID();
+    const name = payload.nameSuffix ? `${area.name} ${payload.nameSuffix}` : area.name;
+    next.areas.push({
+      id,
+      name,
+      fill: area.fill,
+      stroke: area.stroke,
+      strokeWidth: area.strokeWidth,
+      shape,
+    });
+    createdIds.push(id);
+  });
+
+  if (!createdIds.length) return { plan };
+  ensureUpdated(next);
+  return { plan: next, selection: { areaIds: createdIds }, description: 'Paste areas' };
+}
+
 function moveArea(plan: Plan, payload: CommandPayloads['area/move']): CommandResult {
   const target = findArea(plan, payload.id);
   if (!target || target.shape.type !== 'rect') return { plan };
@@ -475,6 +516,8 @@ export function performCommand(plan: Plan, command: Command): CommandResult {
       return createArea(plan, command.payload);
     case 'area/create-polygon':
       return createPolygon(plan, command.payload);
+    case 'area/paste':
+      return pasteAreas(plan, command.payload);
     case 'area/move':
       return moveArea(plan, command.payload);
     case 'area/move-polygon':

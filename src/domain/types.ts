@@ -101,6 +101,7 @@ export type CommandType =
   | 'group/delete'
   | 'group/visibility'
   | 'area/convert-to-polygon'
+  | 'area/paste'
   | 'selection/set';
 
 export type CommandPayloads = {
@@ -140,6 +141,7 @@ export type CommandPayloads = {
   'group/delete': { id: string };
   'group/visibility': { id: string; visible: boolean };
   'area/convert-to-polygon': { ids: string[]; name?: string; fill?: string; stroke?: string };
+  'area/paste': { areas: Area[]; dx: number; dy: number; nameSuffix?: string };
   'selection/set': Selection;
 };
 

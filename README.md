@@ -1,73 +1,90 @@
-# React + TypeScript + Vite
+# Floor Plan Editor
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Interactive floor plan editor built with React, TypeScript, and Vite.
 
-Currently, two official plugins are available:
+## Prerequisites
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- Node.js 18+ (or newer)
+- npm 9+ (or newer)
 
-## React Compiler
+## Setup
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+1. Install dependencies:
+   ```bash
+   npm install
+   ```
+2. Start the dev server:
+   ```bash
+   npm run dev
+   ```
+3. Open the URL shown in the terminal (usually `http://localhost:5173`).
 
-## Expanding the ESLint configuration
+## Build
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm run build
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Preview production build
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm run preview
 ```
+
+## Features
+
+- Draw rectangles and polygons on the floor plan.
+- Select, multi-select (Shift-click), move, and resize shapes.
+- Drag polygon vertices; add polygon points with Alt-click.
+- Snap-to-grid for alignment (toggle in toolbar).
+- Pan/zoom with mouse wheel; space+drag or Pan tool.
+- Rename, recolor, duplicate, delete areas.
+- Divide areas into vertical or horizontal partitions.
+- Merge multiple areas (rectangles/polygons) into a single polygon/multipolygon.
+- Convert selection to polygon.
+- Group selection into named groups.
+- Keyboard controls: Delete to remove, arrow keys to nudge (Shift+arrow = 10px).
+- Context menu (right-click/long-press) for quick actions: rename, divide, duplicate, merge, group, convert.
+- Undo/redo (Ctrl/Cmd+Z, Shift+Ctrl/Cmd+Z) and toolbar buttons.
+- Export/import plan JSON.
+- Boundary resizing handles for the canvas size.
+- "Available" space shading for unused canvas area.
+- Unselected areas rendered with engineering-style hatch.
+
+## How to use
+
+### Create and edit areas
+
+- Choose Rectangle or Polygon tool from the toolbar, then click/drag on the canvas.
+- Select shapes by clicking; Shift-click to multi-select.
+- Drag to move; use handles to resize rectangles.
+- For polygons, drag vertices to adjust; Alt-click an edge to insert a point.
+
+### Duplicate and organize
+
+- Right-click (or long-press) an area for quick actions.
+- Use Duplicate to copy a selected area.
+- Group multiple areas to manage them together.
+
+### Align and navigate
+
+- Toggle Snap-to-grid in the toolbar for alignment.
+- Mouse wheel to zoom; space+drag or Pan tool to pan.
+
+### Merge and convert
+
+- Select multiple areas and use Merge to create a single polygon/multipolygon.
+- Use Convert to polygon for selected rectangles.
+
+### Export and import
+
+- Use the export/import controls to save or load plan JSON.
+
+### Keyboard shortcuts
+
+- Copy: Command + C (macOS) or Control + C (Windows/Linux).
+- Paste: Command + V (macOS) or Control + V (Windows/Linux).
+- Undo: Command + Z or Control + Z.
+- Redo: Shift + Command + Z or Shift + Control + Z.
+- Nudge: Arrow keys (Shift + Arrow = 10px).
+- Delete: Delete/Backspace.

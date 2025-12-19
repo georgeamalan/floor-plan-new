@@ -5,6 +5,35 @@ import Toolbar from './Toolbar';
 import TopBar from './TopBar';
 import { usePlanStore } from '../store/usePlanStore';
 import PromptOverlay from './PromptOverlay';
+import { shapeBoundingBox } from '../domain/geometry';
+import type { Area } from '../domain/types';
+
+const COPY_GAP = 0.5;
+
+function cloneAreas(areas: Area[]) {
+  return structuredClone ? structuredClone(areas) : JSON.parse(JSON.stringify(areas));
+}
+
+function selectionBounds(areas: Area[]) {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  areas.forEach((area) => {
+    const bounds = shapeBoundingBox(area.shape);
+    minX = Math.min(minX, bounds.x);
+    minY = Math.min(minY, bounds.y);
+    maxX = Math.max(maxX, bounds.x + bounds.width);
+    maxY = Math.max(maxY, bounds.y + bounds.height);
+  });
+
+  if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+    return { width: 1, height: 1 };
+  }
+
+  return { width: Math.max(0, maxX - minX), height: Math.max(0, maxY - minY) };
+}
 
 export default function AppShell() {
   const plan = usePlanStore((s) => s.plan);
@@ -21,6 +50,10 @@ export default function AppShell() {
   const resizeWidthRef = useRef<HTMLInputElement>(null);
   const resizeHeightRef = useRef<HTMLInputElement>(null);
   const apply = usePlanStore((s) => s.apply);
+  const clipboardRef = useRef<Area[] | null>(null);
+  const pasteCountRef = useRef(0);
+  const planRef = useRef(plan);
+  const selectionRef = useRef(selection);
 
   const hasSelection = useMemo(() => selection.areaIds.length > 0, [selection.areaIds]);
   const [undocked, setUndocked] = useState(false);
@@ -43,6 +76,14 @@ export default function AppShell() {
   };
 
   useEffect(() => {
+    planRef.current = plan;
+  }, [plan]);
+
+  useEffect(() => {
+    selectionRef.current = selection;
+  }, [selection]);
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       const isTyping =
@@ -50,6 +91,7 @@ export default function AppShell() {
         ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) ||
         target.isContentEditable;
       if (isTyping) return;
+      const key = e.key.toLowerCase();
       const isUndo = (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && !e.shiftKey;
       const isRedo =
         ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') ||
@@ -60,11 +102,29 @@ export default function AppShell() {
       } else if (isRedo) {
         e.preventDefault();
         redo();
+      } else if ((e.metaKey || e.ctrlKey) && key === 'c') {
+        const ids = selectionRef.current.areaIds;
+        if (!ids.length) return;
+        const selected = planRef.current.areas.filter((area) => ids.includes(area.id));
+        if (!selected.length) return;
+        e.preventDefault();
+        clipboardRef.current = cloneAreas(selected);
+        pasteCountRef.current = 0;
+      } else if ((e.metaKey || e.ctrlKey) && key === 'v') {
+        const clipboard = clipboardRef.current;
+        if (!clipboard || !clipboard.length) return;
+        e.preventDefault();
+        pasteCountRef.current += 1;
+        const bounds = selectionBounds(clipboard);
+        const dx = (bounds.width + COPY_GAP) * pasteCountRef.current;
+        const dy = (bounds.height + COPY_GAP) * pasteCountRef.current;
+        const suffix = pasteCountRef.current === 1 ? 'copy' : `copy ${pasteCountRef.current}`;
+        apply({ type: 'area/paste', payload: { areas: clipboard, dx, dy, nameSuffix: suffix } });
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [undo, redo]);
+  }, [undo, redo, apply]);
 
   return (
     <>
