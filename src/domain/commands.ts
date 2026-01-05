@@ -2,13 +2,16 @@ import {
   applyRectResize,
   constrainRectToBounds,
   moveRect,
+  polygonArea,
+  polygonAreaWithHoles,
+  ellipseToRect,
   splitRectEvenly,
   translatePolygon,
   shapeBoundingBox,
 } from './geometry';
 import { defaultAreaName, findArea, partitionNames } from './naming';
 import { addGroup, deleteGroup, toggleGroupVisibility } from './grouping';
-import type { Command, CommandPayloads, PartitionDirection, Plan, Selection, RectShape } from './types';
+import type { Command, CommandPayloads, MirrorAxis, PartitionDirection, Plan, Selection, RectShape, EllipseShape } from './types';
 import polygonClipping from 'polygon-clipping';
 
 type CommandResult = {
@@ -29,11 +32,6 @@ function ensureUpdated(plan: Plan) {
   plan.meta.updatedAt = now();
 }
 
-function overlapsAny(rect: { id?: string; shape: RectShape }, plan: Plan) {
-  const target = rect.shape;
-  return plan.areas.some((a) => a.id !== rect.id && a.shape.type === 'rect' && target.x < a.shape.x + a.shape.width && target.x + target.width > a.shape.x && target.y < a.shape.y + a.shape.height && target.y + target.height > a.shape.y);
-}
-
 type Ring = [number, number][];
 type PolygonRings = Ring[];
 
@@ -50,8 +48,9 @@ function closeRing(points: { x: number; y: number }[]): Ring {
 function shapeToPolygons(
   shape:
     | RectShape
-    | { type: 'polygon'; points: { x: number; y: number }[] }
-    | { type: 'multipolygon'; polygons: { x: number; y: number }[][] },
+    | { type: 'polygon'; points: { x: number; y: number }[]; holes?: { x: number; y: number }[][] }
+    | { type: 'multipolygon'; polygons: { x: number; y: number }[][]; holes?: { x: number; y: number }[][][] }
+    | EllipseShape,
 ): PolygonRings[] {
   if (shape.type === 'rect') {
     const { x, y, width, height } = shape;
@@ -65,16 +64,46 @@ function shapeToPolygons(
     const polygon: PolygonRings = [ring];
     return [polygon];
   }
-  if (shape.type === 'polygon') {
-    const polygon: PolygonRings = [closeRing(shape.points)];
+  if (shape.type === 'ellipse') {
+    const segments = 48;
+    const points: { x: number; y: number }[] = [];
+    for (let i = 0; i < segments; i += 1) {
+      const angle = (i / segments) * Math.PI * 2;
+      points.push({ x: shape.cx + Math.cos(angle) * shape.rx, y: shape.cy + Math.sin(angle) * shape.ry });
+    }
+    const polygon: PolygonRings = [closeRing(points)];
     return [polygon];
   }
-  return shape.polygons.map((poly) => [closeRing(poly)]);
+  if (shape.type === 'polygon') {
+    const polygon: PolygonRings = [closeRing(shape.points), ...(shape.holes ?? []).map(closeRing)];
+    return [polygon];
+  }
+  return shape.polygons.map((poly, idx) => [closeRing(poly), ...(shape.holes?.[idx] ?? []).map(closeRing)]);
 }
 
 function ringsToPoints(ring: Ring): { x: number; y: number }[] {
   const trimmed = ring.length > 1 && ring[0][0] === ring[ring.length - 1][0] && ring[0][1] === ring[ring.length - 1][1] ? ring.slice(0, -1) : ring;
   return trimmed.map(([x, y]) => ({ x, y }));
+}
+
+function mirrorPoint(point: { x: number; y: number }, axis: MirrorAxis, center: { x: number; y: number }) {
+  if (axis === 'vertical') {
+    return { x: center.x * 2 - point.x, y: point.y };
+  }
+  return { x: point.x, y: center.y * 2 - point.y };
+}
+
+function shapeArea(shape: RectShape | { type: 'polygon'; points: { x: number; y: number }[]; holes?: { x: number; y: number }[][] } | { type: 'multipolygon'; polygons: { x: number; y: number }[][]; holes?: { x: number; y: number }[][][] } | EllipseShape) {
+  if (shape.type === 'rect') {
+    return Math.abs(shape.width * shape.height);
+  }
+  if (shape.type === 'ellipse') {
+    return Math.abs(Math.PI * shape.rx * shape.ry);
+  }
+  if (shape.type === 'polygon') {
+    return polygonAreaWithHoles(shape.points, shape.holes);
+  }
+  return shape.polygons.reduce((acc, poly, idx) => acc + polygonAreaWithHoles(poly, shape.holes?.[idx]), 0);
 }
 
 function updatePlanDimensions(plan: Plan, payload: CommandPayloads['plan/resize-boundary']): CommandResult {
@@ -127,7 +156,6 @@ function createAreasFromRect(
   const createdIds: string[] = [];
 
   rects.forEach((rect, idx) => {
-    if (overlapsAny({ shape: rect }, next)) return;
     const id = crypto.randomUUID();
     createdIds.push(id);
     next.areas.push({
@@ -165,6 +193,21 @@ function createPolygon(plan: Plan, payload: CommandPayloads['area/create-polygon
   return { plan: next, selection: { areaIds: [id] }, description: 'Create polygon' };
 }
 
+function createEllipse(plan: Plan, payload: CommandPayloads['area/create-ellipse']): CommandResult {
+  const next = clonePlan(plan);
+  const id = crypto.randomUUID();
+  next.areas.push({
+    id,
+    name: payload.name ?? defaultAreaName(plan),
+    fill: payload.fill ?? '#fecaca',
+    stroke: payload.stroke ?? '#dc2626',
+    strokeWidth: 0.04,
+    shape: { type: 'ellipse', cx: payload.cx, cy: payload.cy, rx: payload.rx, ry: payload.ry },
+  });
+  ensureUpdated(next);
+  return { plan: next, selection: { areaIds: [id] }, description: 'Create ellipse' };
+}
+
 function pasteAreas(plan: Plan, payload: CommandPayloads['area/paste']): CommandResult {
   const next = clonePlan(plan);
   const createdIds: string[] = [];
@@ -178,14 +221,18 @@ function pasteAreas(plan: Plan, payload: CommandPayloads['area/paste']): Command
         next.canvas,
       );
       shape = rect;
+    } else if (shape.type === 'ellipse') {
+      shape = { ...shape, cx: shape.cx + payload.dx, cy: shape.cy + payload.dy };
     } else if (shape.type === 'polygon') {
       const points = shape.points.map((p) => ({ x: p.x + payload.dx, y: p.y + payload.dy }));
       if (points.length < 3) return;
-      shape = { type: 'polygon', points };
+      const holes = shape.holes?.map((hole) => hole.map((p) => ({ x: p.x + payload.dx, y: p.y + payload.dy })));
+      shape = { type: 'polygon', points, holes };
     } else {
       const polygons = shape.polygons.map((poly) => poly.map((p) => ({ x: p.x + payload.dx, y: p.y + payload.dy })));
+      const holes = shape.holes?.map((holeList) => holeList.map((hole) => hole.map((p) => ({ x: p.x + payload.dx, y: p.y + payload.dy }))));
       if (!polygons.length || polygons.some((poly) => poly.length < 3)) return;
-      shape = { type: 'multipolygon', polygons };
+      shape = { type: 'multipolygon', polygons, holes };
     }
 
     const id = crypto.randomUUID();
@@ -197,6 +244,9 @@ function pasteAreas(plan: Plan, payload: CommandPayloads['area/paste']): Command
       stroke: area.stroke,
       strokeWidth: area.strokeWidth,
       shape,
+      labelOffset: area.labelOffset,
+      edgeLabelOffsets: area.edgeLabelOffsets,
+      radiusLabelOffset: area.radiusLabelOffset,
     });
     createdIds.push(id);
   });
@@ -222,11 +272,16 @@ function movePolygonArea(plan: Plan, payload: CommandPayloads['area/move-polygon
   const area = findArea(next, payload.id);
   if (!area) return { plan };
   if (area.shape.type === 'polygon') {
-    area.shape = { ...area.shape, points: translatePolygon(area.shape.points, { dx: payload.dx, dy: payload.dy }) };
+    area.shape = {
+      ...area.shape,
+      points: translatePolygon(area.shape.points, { dx: payload.dx, dy: payload.dy }),
+      holes: area.shape.holes?.map((hole) => translatePolygon(hole, { dx: payload.dx, dy: payload.dy })),
+    };
   } else if (area.shape.type === 'multipolygon') {
     area.shape = {
       ...area.shape,
       polygons: area.shape.polygons.map((poly) => translatePolygon(poly, { dx: payload.dx, dy: payload.dy })),
+      holes: area.shape.holes?.map((holeList) => holeList.map((hole) => translatePolygon(hole, { dx: payload.dx, dy: payload.dy }))),
     };
   } else {
     return { plan };
@@ -253,7 +308,6 @@ function setAreaRect(plan: Plan, payload: CommandPayloads['area/set-rect']): Com
   const area = findArea(next, payload.id);
   if (!area || area.shape.type !== 'rect') return { plan };
   const rect = constrainRectToBounds(payload.rect, next.canvas);
-  if (overlapsAny({ id: area.id, shape: rect }, next)) return { plan };
   area.shape = rect;
   ensureUpdated(next);
   return { plan: next, selection: { areaIds: [payload.id] }, description: 'Update area' };
@@ -262,10 +316,23 @@ function setAreaRect(plan: Plan, payload: CommandPayloads['area/set-rect']): Com
 function setPolygon(plan: Plan, payload: CommandPayloads['area/set-polygon']): CommandResult {
   const next = clonePlan(plan);
   const area = findArea(next, payload.id);
-  if (!area || area.shape.type !== 'polygon') return { plan };
-  area.shape = { ...area.shape, points: payload.points };
+  if (!area || (area.shape.type !== 'polygon' && area.shape.type !== 'rect')) return { plan };
+  area.shape = {
+    type: 'polygon',
+    points: payload.points,
+    holes: area.shape.type === 'polygon' ? area.shape.holes : undefined,
+  };
   ensureUpdated(next);
   return { plan: next, selection: { areaIds: [payload.id] }, description: 'Edit polygon' };
+}
+
+function setEllipse(plan: Plan, payload: CommandPayloads['area/set-ellipse']): CommandResult {
+  const next = clonePlan(plan);
+  const area = findArea(next, payload.id);
+  if (!area || area.shape.type !== 'ellipse') return { plan };
+  area.shape = payload.ellipse;
+  ensureUpdated(next);
+  return { plan: next, selection: { areaIds: [payload.id] }, description: 'Edit ellipse' };
 }
 
 function setMultiPolygon(plan: Plan, payload: CommandPayloads['area/set-multipolygon']): CommandResult {
@@ -287,10 +354,7 @@ function setAreaRectBatch(plan: Plan, payload: CommandPayloads['area/set-rect-ba
     const area = findArea(next, u.id);
     if (!area || area.shape.type !== 'rect') return;
     const rect = constrainRectToBounds(u.rect, next.canvas);
-    const overlaps = overlapsAny({ id: area.id, shape: rect }, next);
-    if (!overlaps) {
-      area.shape = rect;
-    }
+    area.shape = rect;
   });
   ensureUpdated(next);
   return { plan: next, selection: { areaIds: validUpdates.map((u) => u.id) }, description: 'Update areas' };
@@ -314,11 +378,78 @@ function recolorArea(plan: Plan, payload: CommandPayloads['area/recolor']): Comm
   return { plan: next, selection: { areaIds: [payload.id] }, description: 'Recolor area' };
 }
 
+function mirrorArea(plan: Plan, payload: CommandPayloads['area/mirror']): CommandResult {
+  const next = clonePlan(plan);
+  const area = findArea(next, payload.id);
+  if (!area) return { plan };
+  if (area.shape.type === 'polygon') {
+    const bbox = shapeBoundingBox(area.shape);
+    const center = { x: bbox.x + bbox.width / 2, y: bbox.y + bbox.height / 2 };
+    area.shape = {
+      ...area.shape,
+      points: area.shape.points.map((p) => mirrorPoint(p, payload.axis, center)),
+      holes: area.shape.holes?.map((hole) => hole.map((p) => mirrorPoint(p, payload.axis, center))),
+    };
+  } else if (area.shape.type === 'multipolygon') {
+    const bbox = shapeBoundingBox(area.shape);
+    const center = { x: bbox.x + bbox.width / 2, y: bbox.y + bbox.height / 2 };
+    area.shape = {
+      ...area.shape,
+      polygons: area.shape.polygons.map((poly) => poly.map((p) => mirrorPoint(p, payload.axis, center))),
+      holes: area.shape.holes?.map((holeList) => holeList.map((hole) => hole.map((p) => mirrorPoint(p, payload.axis, center)))),
+    };
+  } else if (area.shape.type === 'rect') {
+    // Mirroring a rectangle around its own bounds yields the same shape.
+    area.shape = { ...area.shape };
+  } else if (area.shape.type === 'ellipse') {
+    area.shape = { ...area.shape };
+  }
+  ensureUpdated(next);
+  return { plan: next, selection: { areaIds: [payload.id] }, description: 'Mirror area' };
+}
+
 function deleteArea(plan: Plan, payload: CommandPayloads['area/delete']): CommandResult {
   const next = clonePlan(plan);
   next.areas = next.areas.filter((a) => a.id !== payload.id);
   ensureUpdated(next);
   return { plan: next, selection: { areaIds: [] }, description: 'Delete area' };
+}
+
+function subtractAreas(plan: Plan, payload: CommandPayloads['area/subtract']): CommandResult {
+  if (payload.ids.length < 2) return { plan };
+  const next = clonePlan(plan);
+  const targets = payload.ids
+    .map((id) => findArea(next, id))
+    .filter((a): a is NonNullable<typeof a> => Boolean(a));
+  if (targets.length < 2) return { plan };
+  const base = targets.reduce((largest, area) => (shapeArea(area.shape) > shapeArea(largest.shape) ? area : largest));
+  const cutters = targets.filter((area) => area.id !== base.id);
+  const subject = shapeToPolygons(base.shape);
+  const clips = cutters.flatMap((area) => shapeToPolygons(area.shape));
+  const diff = polygonClipping.difference(subject, ...clips);
+  const polygons: { x: number; y: number }[][] = [];
+  const holes: { x: number; y: number }[][][] = [];
+  (diff ?? []).forEach((poly: Ring[]) => {
+    const ring = poly?.[0];
+    if (ring && ring.length >= 3) {
+      polygons.push(ringsToPoints(ring));
+      holes.push(poly.slice(1).map((hole) => ringsToPoints(hole)));
+    }
+  });
+  if (!polygons.length) {
+    next.areas = next.areas.filter((a) => !payload.ids.includes(a.id));
+    ensureUpdated(next);
+    return { plan: next, selection: { areaIds: [] }, description: 'Subtract areas' };
+  }
+  next.areas = next.areas.filter((a) => a.id === base.id || !payload.ids.includes(a.id));
+  const baseArea = findArea(next, base.id);
+  if (!baseArea) return { plan };
+  baseArea.shape =
+    polygons.length === 1
+      ? { type: 'polygon', points: polygons[0], holes: holes[0] }
+      : { type: 'multipolygon', polygons, holes };
+  ensureUpdated(next);
+  return { plan: next, selection: { areaIds: [base.id] }, description: 'Subtract areas' };
 }
 
 function mergeAreas(plan: Plan, payload: CommandPayloads['area/merge']): CommandResult {
@@ -331,10 +462,12 @@ function mergeAreas(plan: Plan, payload: CommandPayloads['area/merge']): Command
   const polygonInputs = targets.flatMap((area) => shapeToPolygons(area.shape));
   const merged = polygonClipping.union(...polygonInputs);
   const polygons: { x: number; y: number }[][] = [];
+  const holes: { x: number; y: number }[][][] = [];
   (merged ?? []).forEach((poly: Ring[]) => {
     const ring = poly?.[0];
     if (ring && ring.length >= 3) {
       polygons.push(ringsToPoints(ring));
+      holes.push(poly.slice(1).map((hole) => ringsToPoints(hole)));
     }
   });
   if (!polygons.length) return { plan };
@@ -346,7 +479,10 @@ function mergeAreas(plan: Plan, payload: CommandPayloads['area/merge']): Command
     fill: payload.fill ?? targets[0].fill,
     stroke: payload.stroke ?? targets[0].stroke,
     strokeWidth: targets[0].strokeWidth,
-    shape: polygons.length === 1 ? { type: 'polygon', points: polygons[0] } : { type: 'multipolygon', polygons },
+    shape:
+      polygons.length === 1
+        ? { type: 'polygon', points: polygons[0], holes: holes[0] }
+        : { type: 'multipolygon', polygons, holes },
   });
   ensureUpdated(next);
   return { plan: next, selection: { areaIds: [mergedId] }, description: 'Merge areas' };
@@ -369,6 +505,15 @@ function convertToPolygon(plan: Plan, payload: CommandPayloads['area/convert-to-
         { x: x + width, y: y + height },
         { x, y: y + height },
       ]);
+    } else if (a.shape.type === 'ellipse') {
+      const rect = ellipseToRect(a.shape);
+      const segments = 48;
+      const points: { x: number; y: number }[] = [];
+      for (let i = 0; i < segments; i += 1) {
+        const angle = (i / segments) * Math.PI * 2;
+        points.push({ x: rect.x + rect.width / 2 + Math.cos(angle) * rect.width / 2, y: rect.y + rect.height / 2 + Math.sin(angle) * rect.height / 2 });
+      }
+      polygons.push(points);
     } else if (a.shape.type === 'polygon') {
       polygons.push(a.shape.points);
     } else {
@@ -484,22 +629,55 @@ function moveMany(plan: Plan, payload: CommandPayloads['area/move-multi']): Comm
     const area = findArea(next, id);
     if (area && area.shape.type === 'rect') {
       const moved = moveRect(area.shape, { dx: payload.dx, dy: payload.dy }, next.canvas);
-      if (!overlapsAny({ id: area.id, shape: moved }, next)) {
-        area.shape = moved;
-      }
+      area.shape = moved;
+    }
+    if (area && area.shape.type === 'ellipse') {
+      area.shape = { ...area.shape, cx: area.shape.cx + payload.dx, cy: area.shape.cy + payload.dy };
     }
     if (area && area.shape.type === 'polygon') {
-      area.shape = { ...area.shape, points: translatePolygon(area.shape.points, { dx: payload.dx, dy: payload.dy }) };
+      area.shape = {
+        ...area.shape,
+        points: translatePolygon(area.shape.points, { dx: payload.dx, dy: payload.dy }),
+        holes: area.shape.holes?.map((hole) => translatePolygon(hole, { dx: payload.dx, dy: payload.dy })),
+      };
     }
     if (area && area.shape.type === 'multipolygon') {
       area.shape = {
         ...area.shape,
         polygons: area.shape.polygons.map((poly) => translatePolygon(poly, { dx: payload.dx, dy: payload.dy })),
+        holes: area.shape.holes?.map((holeList) => holeList.map((hole) => translatePolygon(hole, { dx: payload.dx, dy: payload.dy }))),
       };
     }
   });
   ensureUpdated(next);
   return { plan: next, selection: { areaIds: payload.ids }, description: 'Move areas' };
+}
+
+function setAreaLabelOffset(plan: Plan, payload: CommandPayloads['area/set-label-offset']): CommandResult {
+  const next = clonePlan(plan);
+  const area = findArea(next, payload.id);
+  if (!area) return { plan };
+  area.labelOffset = payload.offset;
+  ensureUpdated(next);
+  return { plan: next, selection: { areaIds: [payload.id] }, description: 'Move area label' };
+}
+
+function setEdgeLabelOffset(plan: Plan, payload: CommandPayloads['area/set-edge-label-offset']): CommandResult {
+  const next = clonePlan(plan);
+  const area = findArea(next, payload.id);
+  if (!area) return { plan };
+  area.edgeLabelOffsets = { ...(area.edgeLabelOffsets ?? {}), [payload.edgeKey]: payload.offset };
+  ensureUpdated(next);
+  return { plan: next, selection: { areaIds: [payload.id] }, description: 'Move edge label' };
+}
+
+function setRadiusLabelOffset(plan: Plan, payload: CommandPayloads['area/set-radius-label-offset']): CommandResult {
+  const next = clonePlan(plan);
+  const area = findArea(next, payload.id);
+  if (!area) return { plan };
+  area.radiusLabelOffset = payload.offset;
+  ensureUpdated(next);
+  return { plan: next, selection: { areaIds: [payload.id] }, description: 'Move radius label' };
 }
 
 export function performCommand(plan: Plan, command: Command): CommandResult {
@@ -516,6 +694,8 @@ export function performCommand(plan: Plan, command: Command): CommandResult {
       return createArea(plan, command.payload);
     case 'area/create-polygon':
       return createPolygon(plan, command.payload);
+    case 'area/create-ellipse':
+      return createEllipse(plan, command.payload);
     case 'area/paste':
       return pasteAreas(plan, command.payload);
     case 'area/move':
@@ -526,6 +706,8 @@ export function performCommand(plan: Plan, command: Command): CommandResult {
       return resizeArea(plan, command.payload);
     case 'area/set-rect':
       return setAreaRect(plan, command.payload);
+    case 'area/set-ellipse':
+      return setEllipse(plan, command.payload);
     case 'area/set-rect-batch':
       return setAreaRectBatch(plan, command.payload);
     case 'area/set-polygon':
@@ -538,6 +720,10 @@ export function performCommand(plan: Plan, command: Command): CommandResult {
       return recolorArea(plan, command.payload);
     case 'area/delete':
       return deleteArea(plan, command.payload);
+    case 'area/mirror':
+      return mirrorArea(plan, command.payload);
+    case 'area/subtract':
+      return subtractAreas(plan, command.payload);
     case 'area/divide':
       return divideArea(plan, command.payload);
     case 'area/merge':
@@ -552,6 +738,12 @@ export function performCommand(plan: Plan, command: Command): CommandResult {
       return convertToPolygon(plan, command.payload);
     case 'area/move-multi':
       return moveMany(plan, command.payload);
+    case 'area/set-label-offset':
+      return setAreaLabelOffset(plan, command.payload);
+    case 'area/set-edge-label-offset':
+      return setEdgeLabelOffset(plan, command.payload);
+    case 'area/set-radius-label-offset':
+      return setRadiusLabelOffset(plan, command.payload);
     case 'selection/set':
       return setSelection(plan, command.payload);
     default:

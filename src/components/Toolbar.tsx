@@ -12,6 +12,10 @@ const tools: { id: Tool; label: string; icon: string }[] = [
   { id: 'select', label: 'Select / Move', icon: '⬚' },
   { id: 'draw-rect', label: 'Draw Rectangle', icon: '▭' },
   { id: 'draw-polygon', label: 'Draw Polygon', icon: '△' },
+  { id: 'draw-ellipse', label: 'Draw Ellipse', icon: '◯' },
+  { id: 'draw-circle', label: 'Draw Circle', icon: '⬤' },
+  { id: 'draw-semi-circle', label: 'Draw Semi Circle', icon: '◐' },
+  { id: 'draw-quadrant', label: 'Draw Quadrant', icon: '◴' },
   { id: 'divide', label: 'Divide Area', icon: '⇲' },
   { id: 'pan', label: 'Pan / Zoom', icon: '✥' },
   { id: 'fill', label: 'Color Fill', icon: '🎨' },
@@ -24,6 +28,8 @@ export default function Toolbar({ activeTool, onChangeTool, hasSelection }: Prop
   const apply = usePlanStore((s) => s.apply);
   const plan = usePlanStore((s) => s.plan);
   const snapEnabled = usePlanStore((s) => s.snapEnabled);
+  const showDimensions = usePlanStore((s) => s.showDimensions);
+  const showGrid = usePlanStore((s) => s.showGrid);
   const openPrompt = usePromptStore((s) => s.openPrompt);
 
   return (
@@ -78,6 +84,24 @@ export default function Toolbar({ activeTool, onChangeTool, hasSelection }: Prop
             Snap
           </label>
         </div>
+        <div className="mt-2 flex items-center justify-between">
+          <label className="flex items-center gap-2 text-xs text-slate-500">
+            <input
+              type="checkbox"
+              checked={showDimensions}
+              onChange={(e) => usePlanStore.setState({ showDimensions: e.target.checked })}
+            />
+            Dimensions
+          </label>
+          <label className="flex items-center gap-2 text-xs text-slate-500">
+            <input
+              type="checkbox"
+              checked={showGrid}
+              onChange={(e) => usePlanStore.setState({ showGrid: e.target.checked })}
+            />
+            Grid
+          </label>
+        </div>
         <div className="mt-2 flex items-center gap-2">
           <input
             type="color"
@@ -129,6 +153,17 @@ export default function Toolbar({ activeTool, onChangeTool, hasSelection }: Prop
             }}
           >
             Merge selection
+          </button>
+          <button
+            className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+            disabled={usePlanStore.getState().selection.areaIds.length < 2}
+            onClick={() => {
+              const ids = usePlanStore.getState().selection.areaIds;
+              if (ids.length < 2) return;
+              usePlanStore.getState().apply({ type: 'area/subtract', payload: { ids } });
+            }}
+          >
+            Subtract selection
           </button>
         </div>
       </div>

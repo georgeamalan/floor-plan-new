@@ -24,8 +24,11 @@ export type Area = {
   fill: string;
   stroke: string;
   strokeWidth: number;
-  shape: RectShape | PolygonShape | MultiPolygonShape;
+  shape: RectShape | PolygonShape | MultiPolygonShape | EllipseShape;
   parentId?: string;
+  labelOffset?: { x: number; y: number };
+  edgeLabelOffsets?: Record<string, { x: number; y: number }>;
+  radiusLabelOffset?: { x: number; y: number };
 };
 
 export type RectShape = {
@@ -41,12 +44,22 @@ export type RectShape = {
 export type PolygonShape = {
   type: 'polygon';
   points: { x: number; y: number }[];
+  holes?: { x: number; y: number }[][];
   rotation?: number;
 };
 
 export type MultiPolygonShape = {
   type: 'multipolygon';
   polygons: { x: number; y: number }[][];
+  holes?: { x: number; y: number }[][][];
+};
+
+export type EllipseShape = {
+  type: 'ellipse';
+  cx: number;
+  cy: number;
+  rx: number;
+  ry: number;
 };
 
 export type Selection = {
@@ -67,10 +80,16 @@ export type BoundaryHandle = 'left' | 'right' | 'top' | 'bottom';
 
 export type PartitionDirection = 'horizontal' | 'vertical';
 
+export type MirrorAxis = 'horizontal' | 'vertical';
+
 export type Tool =
   | 'select'
   | 'draw-rect'
   | 'draw-polygon'
+  | 'draw-ellipse'
+  | 'draw-circle'
+  | 'draw-semi-circle'
+  | 'draw-quadrant'
   | 'divide'
   | 'pan'
   | 'fill'
@@ -84,10 +103,12 @@ export type CommandType =
   | 'plan/load'
   | 'area/create'
   | 'area/create-polygon'
+  | 'area/create-ellipse'
   | 'area/move'
   | 'area/move-polygon'
   | 'area/resize'
   | 'area/set-rect'
+  | 'area/set-ellipse'
   | 'area/set-rect-batch'
   | 'area/set-polygon'
   | 'area/set-multipolygon'
@@ -95,6 +116,8 @@ export type CommandType =
   | 'area/rename'
   | 'area/recolor'
   | 'area/delete'
+  | 'area/mirror'
+  | 'area/subtract'
   | 'area/divide'
   | 'area/merge'
   | 'group/create'
@@ -102,6 +125,9 @@ export type CommandType =
   | 'group/visibility'
   | 'area/convert-to-polygon'
   | 'area/paste'
+  | 'area/set-label-offset'
+  | 'area/set-edge-label-offset'
+  | 'area/set-radius-label-offset'
   | 'selection/set';
 
 export type CommandPayloads = {
@@ -124,10 +150,20 @@ export type CommandPayloads = {
     stroke?: string;
     name?: string;
   };
+  'area/create-ellipse': {
+    cx: number;
+    cy: number;
+    rx: number;
+    ry: number;
+    fill?: string;
+    stroke?: string;
+    name?: string;
+  };
   'area/move-polygon': { id: string; dx: number; dy: number };
   'area/move': { id: string; dx: number; dy: number };
   'area/resize': { id: string; handle: RectHandle; dx: number; dy: number };
   'area/set-rect': { id: string; rect: RectShape };
+  'area/set-ellipse': { id: string; ellipse: EllipseShape };
   'area/set-rect-batch': { updates: { id: string; rect: RectShape }[] };
   'area/set-polygon': { id: string; points: { x: number; y: number }[] };
   'area/set-multipolygon': { id: string; polygons: { x: number; y: number }[][] };
@@ -135,6 +171,8 @@ export type CommandPayloads = {
   'area/rename': { id: string; name: string };
   'area/recolor': { id: string; fill: string };
   'area/delete': { id: string };
+  'area/mirror': { id: string; axis: MirrorAxis };
+  'area/subtract': { ids: string[] };
   'area/divide': { id: string; partitions: number; direction?: PartitionDirection };
   'area/merge': { ids: string[]; name?: string; fill?: string; stroke?: string };
   'group/create': { name: string; areaIds: string[] };
@@ -142,6 +180,9 @@ export type CommandPayloads = {
   'group/visibility': { id: string; visible: boolean };
   'area/convert-to-polygon': { ids: string[]; name?: string; fill?: string; stroke?: string };
   'area/paste': { areas: Area[]; dx: number; dy: number; nameSuffix?: string };
+  'area/set-label-offset': { id: string; offset: { x: number; y: number } };
+  'area/set-edge-label-offset': { id: string; edgeKey: string; offset: { x: number; y: number } };
+  'area/set-radius-label-offset': { id: string; offset: { x: number; y: number } };
   'selection/set': Selection;
 };
 

@@ -124,6 +124,20 @@ export default function PropertiesPanel() {
                 Rename
               </button>
             </div>
+            <div className="flex gap-2">
+              <button
+                className="flex-1 rounded-lg border border-slate-200 px-3 py-2 font-semibold text-slate-700 hover:bg-slate-100"
+                onClick={() => apply({ type: 'area/mirror', payload: { id: selectedArea.id, axis: 'vertical' } })}
+              >
+                Mirror vertical
+              </button>
+              <button
+                className="flex-1 rounded-lg border border-slate-200 px-3 py-2 font-semibold text-slate-700 hover:bg-slate-100"
+                onClick={() => apply({ type: 'area/mirror', payload: { id: selectedArea.id, axis: 'horizontal' } })}
+              >
+                Mirror horizontal
+              </button>
+            </div>
           </div>
         )}
       </div>

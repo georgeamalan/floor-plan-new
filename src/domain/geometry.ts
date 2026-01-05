@@ -1,4 +1,4 @@
-import type { PartitionDirection, RectHandle, RectShape, PolygonShape, MultiPolygonShape } from './types';
+import type { PartitionDirection, RectHandle, RectShape, PolygonShape, MultiPolygonShape, EllipseShape } from './types';
 
 export const MIN_SIZE = 0.25;
 
@@ -80,8 +80,9 @@ export function clampDeltaForMultiPolygon(
   polygons: { x: number; y: number }[][],
   bounds: { width: number; height: number },
   delta: { dx: number; dy: number },
+  holes: { x: number; y: number }[][][] = [],
 ) {
-  const pts = polygons.flat();
+  const pts = polygons.flat().concat(holes.flat(2));
   return clampDeltaForPolygon(pts, bounds, delta);
 }
 
@@ -219,11 +220,17 @@ export function pointInRect(point: { x: number; y: number }, rect: RectShape) {
   );
 }
 
-export function shapeBoundingBox(shape: RectShape | PolygonShape | MultiPolygonShape) {
+export function shapeBoundingBox(shape: RectShape | PolygonShape | MultiPolygonShape | EllipseShape) {
   if (shape.type === 'rect') {
     return { x: shape.x, y: shape.y, width: shape.width, height: shape.height };
   }
-  const pts = shape.type === 'polygon' ? shape.points : shape.polygons.flat();
+  if (shape.type === 'ellipse') {
+    return { x: shape.cx - shape.rx, y: shape.cy - shape.ry, width: shape.rx * 2, height: shape.ry * 2 };
+  }
+  const pts =
+    shape.type === 'polygon'
+      ? shape.points.concat(shape.holes?.flat() ?? [])
+      : shape.polygons.flat().concat(shape.holes?.flat(2) ?? []);
   const xs = pts.map((p: { x: number; y: number }) => p.x);
   const ys = pts.map((p: { x: number; y: number }) => p.y);
   const minX = Math.min(...xs);
@@ -257,4 +264,20 @@ export function polygonArea(points: { x: number; y: number }[]) {
     sum += current.x * next.y - next.x * current.y;
   }
   return Math.abs(sum) / 2;
+}
+
+export function polygonAreaWithHoles(points: { x: number; y: number }[], holes: { x: number; y: number }[][] = []) {
+  const outer = polygonArea(points);
+  const holeArea = holes.reduce((acc, hole) => acc + polygonArea(hole), 0);
+  return Math.max(0, outer - holeArea);
+}
+
+export function ellipseToRect(ellipse: EllipseShape): RectShape {
+  return { type: 'rect', x: ellipse.cx - ellipse.rx, y: ellipse.cy - ellipse.ry, width: ellipse.rx * 2, height: ellipse.ry * 2 };
+}
+
+export function rectToEllipse(rect: RectShape): EllipseShape {
+  const rx = rect.width / 2;
+  const ry = rect.height / 2;
+  return { type: 'ellipse', cx: rect.x + rx, cy: rect.y + ry, rx, ry };
 }

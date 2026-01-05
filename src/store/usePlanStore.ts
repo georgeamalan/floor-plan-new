@@ -11,6 +11,8 @@ type PlanStoreState = {
   activeTool: Tool;
   paletteColor: string;
   snapEnabled: boolean;
+  showDimensions: boolean;
+  showGrid: boolean;
   apply: (command: Command) => void;
   undo: () => void;
   redo: () => void;
@@ -42,6 +44,8 @@ export const usePlanStore = create<PlanStoreState>()(
       activeTool: 'select',
       paletteColor: '#f59e0b',
       snapEnabled: true,
+      showDimensions: true,
+      showGrid: true,
       apply: (command: Command) =>
         set((state) => {
           const before = clonePlan(state.plan);
